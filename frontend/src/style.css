@@ -1,0 +1,39 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  background: #f5f6f8;
+  color: #1f2329;
+  font-size: 14px;
+}
+
+#app { height: 100vh; }
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+}
+
+/* 通用滚动条 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #d0d3d9; border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* 徽章（文档状态 / 意图标签） */
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.badge.ok, .badge.ready { background: #e8f7ee; color: #16a34a; }
+.badge.processing { background: #fef3c7; color: #d97706; }
+.badge.failed, .badge.error { background: #fee2e2; color: #dc2626; }
+.badge.chitchat { background: #ede9fe; color: #7c3aed; }
+.badge.kb_question { background: #dbeafe; color: #2563eb; }
+.badge.no_info { background: #f1f5f9; color: #64748b; }
+.badge.tool { background: #ccfbf1; color: #0f766e; }
