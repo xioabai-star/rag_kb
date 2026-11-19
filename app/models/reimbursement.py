@@ -1,5 +1,6 @@
 import logging
-
+from uuid import uuid4
+import json
 import aiosqlite
 from app import config
 
@@ -17,6 +18,22 @@ _CREATE_SQL = """
     )
 """
 
+_CREATE_TASKS_SQL = """
+    CREATE TABLE IF NOT EXISTS reimbursement_tasks (
+        task_id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'collecting_info'
+            CHECK (status IN (
+                'collecting_info', 'needs_review', 'awaiting_confirmation',
+                'submitted', 'cancelled', 'failed'
+            )),
+        draft_json TEXT NOT NULL DEFAULT '{}',
+        draft_revision INTEGER NOT NULL DEFAULT 1 CHECK (draft_revision > 0),
+        reimbursement_id INTEGER UNIQUE
+    )
+"""
+
 class ReimbursementStore:
     def __init__(self,db_path):
         self.db_path = db_path
@@ -26,12 +43,64 @@ class ReimbursementStore:
         self.db_path.parent.mkdir(parents= True, exist_ok= True)
         self.conn = await aiosqlite.connect(self.db_path)
         await self.conn.execute(_CREATE_SQL)
+        await self.conn.execute(_CREATE_TASKS_SQL)
         await self.conn.commit()
         logger.info(f"reimbursements 表就绪：{self.db_path}")
 
     async def close(self) -> None:
         if self.conn:
             await self.conn.close()
+
+    async def create_draft(
+            self,user_id: str,
+            thread_id: str,
+            draft: dict
+    ) -> str:
+        """保存保小草稿并返回任务ID"""
+        task_id = uuid4().hex
+        draft_json = json.dumps(draft, ensure_ascii= False)
+        await self.conn.execute(
+            """
+            INSERT INTO reimbursement_tasks(
+                task_id,
+                user_id,
+                thread_id,
+                draft_json
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (task_id, user_id, thread_id, draft_json)
+        )
+        await self.conn.commit()
+        return task_id
+
+
+    async def get_draft(self,user_id: str, task_id: str) -> dict | None:
+        """读取指定用户的报销草稿"""
+        async with self.conn.execute(
+            """
+            SELECT thread_id, status, draft_json, draft_revision, reimbursement_id
+            FROM reimbursement_tasks
+            WHERE task_id = ? AND user_id = ?
+            """,
+                (task_id, user_id)
+        ) as cursor:
+            row = await cursor.fetchone()
+
+            if row is None:
+                return None
+
+            thread_id, status, draft_json, draft_revision, reimbursement_id = row
+            return {
+                "task_id":task_id,
+                "thread_id":thread_id,
+                "status":status,
+                "draft":json.loads(draft_json),
+                "draft_revision":draft_revision,
+                "reimbursement_id":reimbursement_id,
+            }
+
+
 
     async def list_by_user(self, user_id: str, limit: int = 5) -> list[dict]:
         """查某某用户最近的报销单（工具节点用；倒序取最近的limit条。"""
