@@ -2,6 +2,8 @@ import logging
 from uuid import uuid4
 import json
 import aiosqlite
+import asyncio
+
 from app import config
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,7 @@ class ReimbursementStore:
     def __init__(self,db_path):
         self.db_path = db_path
         self.conn: aiosqlite.Connection | None = None
+        self._write_lock = asyncio.Lock()
 
     async def init(self) -> None:
         self.db_path.parent.mkdir(parents= True, exist_ok= True)
@@ -59,19 +62,24 @@ class ReimbursementStore:
         """保存保小草稿并返回任务ID"""
         task_id = uuid4().hex
         draft_json = json.dumps(draft, ensure_ascii= False)
-        await self.conn.execute(
-            """
-            INSERT INTO reimbursement_tasks(
-                task_id,
-                user_id,
-                thread_id,
-                draft_json
-            )
-            VALUES (?, ?, ?, ?)
-            """,
-            (task_id, user_id, thread_id, draft_json)
-        )
-        await self.conn.commit()
+        async with self._write_lock:
+            try:
+                await self.conn.execute(
+                    """
+                    INSERT INTO reimbursement_tasks(
+                        task_id,
+                        user_id,
+                        thread_id,
+                        draft_json
+                    )
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (task_id, user_id, thread_id, draft_json)
+                )
+                await self.conn.commit()
+            except(Exception, asyncio.CancelledError):
+                await self.conn.rollback()
+                raise
         return task_id
 
 
