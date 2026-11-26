@@ -80,3 +80,82 @@ class ReimbursementDraftTest(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNone(await reopened.get_draft("user-a", cancelled_id.hex))
             finally:
                 await reopened.close()
+
+
+    async def test_update_draft_increments_revision(self):
+        with TemporaryDirectory() as directory:
+            store = ReimbursementStore(Path(directory) / "drafts.db")
+            original = {"city": "Shanghai", "nights": 2, "amount_fen": 98000}
+            changed = {"city": "Shanghai", "nights": 3, "amount_fen": 96000}
+
+            try:
+                await store.init()
+                task_id = await store.create_draft("user-a", "thread-a", original)
+
+                updated = await store.update_draft(
+                    user_id = "user-a",
+                    task_id = task_id,
+                    draft = changed,
+                    expected_revision = 1,
+                )
+
+                self.assertIs(updated, True)
+                saved = await store.get_draft("user-a", task_id)
+                self.assertIsNotNone(saved)
+                self.assertEqual(saved["draft"], changed)
+                self.assertEqual(saved["draft_revision"], 2)
+            finally:
+                await store.close()
+
+    async def test_stale_revision_cannot_overwrite_latest_draft(self):
+        with TemporaryDirectory() as directory:
+            store = ReimbursementStore(Path(directory) / "drafts.db")
+            original = {"city": "Shanghai", "nights": 2, "amount_fen": 98000}
+            latest = {"city": "Shanghai", "nights": 3, "amount_fen": 96000}
+            stale = {"city": "Shanghai", "nights": 2, "amount_fen": 110000}
+
+            try:
+                await store.init()
+                task_id = await store.create_draft("user-a", "thread-a", original)
+
+                self.assertIs(
+                    await store.update_draft("user-a", task_id, latest, expected_revision=1),
+                    True,
+                )
+                self.assertIs(
+                    await store.update_draft("user-a", task_id, stale, expected_revision=1),
+                    False,
+                )
+
+                saved = await store.get_draft("user-a", task_id)
+                self.assertIsNotNone(saved)
+                self.assertEqual(saved["draft"], latest)
+                self.assertEqual(saved["draft_revision"], 2)
+            finally:
+                await store.close()
+
+
+    async def test_other_user_cannot_update_draft(self):
+        with TemporaryDirectory() as directory:
+            store = ReimbursementStore(Path(directory) / "drafts.db")
+            original = {"city": "Shanghai", "nights": 2, "amount_fen": 98000}
+            changed = {"city": "Shanghai", "nights": 2, "amount_fen": 96000}
+
+            try:
+                await store.init()
+                task_id = await store.create_draft("user-a", "thread-a", original)
+
+                updated = await store.update_draft(
+                    user_id="user-b",
+                    task_id=task_id,
+                    draft=changed,
+                    expected_revision=1,
+                )
+
+                self.assertIs(updated, False)
+                saved = await store.get_draft("user-a", task_id)
+                self.assertIsNotNone(saved)
+                self.assertEqual(saved["draft"], original)
+                self.assertEqual(saved["draft_revision"], 1)
+            finally:
+                await store.close()

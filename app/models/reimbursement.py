@@ -55,11 +55,12 @@ class ReimbursementStore:
             await self.conn.close()
 
     async def create_draft(
-            self,user_id: str,
+            self,
+            user_id: str,
             thread_id: str,
             draft: dict
     ) -> str:
-        """保存保小草稿并返回任务ID"""
+        """保存报销草稿并返回任务ID"""
         task_id = uuid4().hex
         draft_json = json.dumps(draft, ensure_ascii= False)
         async with self._write_lock:
@@ -108,7 +109,33 @@ class ReimbursementStore:
                 "reimbursement_id":reimbursement_id,
             }
 
+    async def update_draft(
+            self,
+            user_id: str,
+            task_id: str,
+            draft: dict,
+            expected_revision: int
+    ) -> bool:
+        """按用户和预期版本更新报销草稿"""
+        draft_json = json.dumps(draft, ensure_ascii = False)
 
+        async with self._write_lock:
+            try:
+                async with self.conn.execute(
+                    """
+                    UPDATE reimbursement_tasks
+                    SET draft_json = ?, draft_revision = draft_revision + 1
+                    WHERE task_id = ? AND user_id = ? AND draft_revision = ?
+                    """,
+                    (draft_json, task_id, user_id, expected_revision)
+                ) as cursor:
+                    updated = cursor.rowcount == 1
+
+                    await self.conn.commit()
+            except(Exception, asyncio.CancelledError):
+                    await self.conn.rollback()
+                    raise
+        return updated
 
     async def list_by_user(self, user_id: str, limit: int = 5) -> list[dict]:
         """查某某用户最近的报销单（工具节点用；倒序取最近的limit条。"""
